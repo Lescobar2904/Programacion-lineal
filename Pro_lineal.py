@@ -1,5 +1,6 @@
 import numpy as np
 import operator
+import matplotlib.pyplot as plt
 
 operadores = {
     "<=": operator.le,
@@ -73,22 +74,54 @@ def Pro_lineal(A,B,C,Sim,max_Min):
 #------------------------------------------------------------------------------
 
 
-#A = np.array([
-#    [2, 1],
-#    [1, 3],
-#    [1, 0],
-#    [0, 1],
-#    [1, 0],
-#    [0, 1]
-#])
-#
-#B = np.array([100, 80, 45, 100, 0, 0])
-#Sim = ["<=", "<=", "<=", "<=", ">=", ">="]
-#C = np.array([2, 3])
-#
-#opt_val, opt_punto = Pro_lineal(A, B, C, Sim, "max")
-#print("Valor óptimo:", opt_val)
-#print("Punto óptimo:", opt_punto)
-#
+def graficar(A, B, Sim, C, max_Min):
+    x_vals = np.linspace(0, 100, 400)
+    y_vals = np.linspace(0, 100, 400)
+    
+    plt.figure(figsize=(8, 8))
+
+    for i in range(len(B)):
+        if A[i, 1] != 0:
+            y = (B[i] - A[i, 0] * x_vals) / A[i, 1]
+            plt.plot(x_vals, y, label=f'restriccion {i+1}')
+        else:
+            plt.axvline(x=B[i] / A[i, 0], linestyle='--', label=f'restriccion {i+1}')
+
+    if C[1] != 0:
+        y_obj = (-C[0] * x_vals) / C[1]
+        plt.plot(x_vals, y_obj, label="funcion objetivo", color='black', linestyle='--')
+
+    plt.xlim(0, 100)
+    plt.ylim(0, 100)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.axhline(0, color='black',linewidth=1)
+    plt.axvline(0, color='black',linewidth=1)
+    
+    opt_val, opt_punto = Pro_lineal(A, B, C, Sim, max_Min)
+    plt.plot(opt_punto[0], opt_punto[1], 'ro', label=f'solucion optima {opt_punto}')
+    plt.title(f"optimizacion: {max_Min.capitalize()}imizacion de z")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+A = np.array([
+    [2, 1],
+    [1, 3],
+    [1, 0],
+    [0, 1]
+])
+
+B = np.array([100, 80, 45, 100])
+Sim = ["<=", "<=", "<=", "<="]
+C = np.array([2, 3])
+
+opt_val, opt_punto = Pro_lineal(A, B, C, Sim, "max")
+print(f"valor optimo: {opt_val}")
+print(f"punto optimo: {opt_punto}")
+
+graficar(A, B, Sim, C, "max")
+
 #Valor óptimo: 124.0
 #Punto óptimo: [44. 12.]
