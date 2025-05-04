@@ -1,189 +1,186 @@
-import numpy as np
-import operator
-import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
-operadores = {
-    "<=": operator.le,
-    ">=": operator.ge,
-    "<": operator.lt,
-    ">": operator.gt,
-    "==": operator.eq,
-    "!=": operator.ne
-}
+import numpy as np                   
+import matplotlib.pyplot as plt     
+import re                           #libreria para trabajar con expresiones regulares, en cadenas como "max z = 3x + 2y" y extraer los coeficientes de forma estructurada
+from itertools import combinations  #para generar combinaciones de restricciones (pares)
 
-# funcion que resuelve un conjunto de ecuaciones lineales para 
-# encontrar los puntos de intercepcion entre dos rectas
-def puntos(a,b):
-    return np.linalg.solve(a, b)
+def parse_input():
+    A = []   #lista para coeficientes de x en cada restriccion
+    B = []   #lista para coeficientes de y en cada restriccion
+    C = []   #lista para terminos independientes de cada restriccion
+    Sim = [] #lista para simbolos de desigualdad (<=, >=, =)
 
-# funcion que verifica si los puntos son parte de la region factible o no
-def verificacion(A, B, simbolos, punto):
-    resultados = A @ punto  # Mutiplica la matriz por el vector de puntos (como resultado da un vector)
-    for i, op_str in enumerate(simbolos):
-        op_func = operadores[op_str]  # función según el símbolo
-        if not op_func(resultados[i], B[i]):
+    #se pide al usuario cuantas restricciones ingresara
+    n = int(input("¿cuantas restricciones vas a ingresar? "))
+    print("ingresa cada restriccion (ejemplo: 2x + 3y <= 60):")
+
+    for _ in range(n):
+        restr = input("> ").replace(" ", "")  #se eliminan espacios
+        #expresion regular para extraer coeficientes y simbolo
+        m = re.match(r'([-+]?\d*)x([-+]?\d*)y(<=|>=|=)(-?\d+)', restr)
+        if not m:
+            raise ValueError("formato incorrecto de restriccion. Asegurate de seguir el formato como '2x+3y<=60'")
+        
+        #coeficiente de x (1 si no hay número, -1 si es solo '-')
+        a = int(m.group(1) or '1') if m.group(1) != '-' else -1
+        #coeficiente de y
+        b = int(m.group(2) or '1') if m.group(2) != '-' else -1
+        #simbolo de desigualdad
+        s = m.group(3)
+        #termino independiente (constante)
+        c = int(m.group(4))
+
+        A.append(a)
+        B.append(b)
+        Sim.append(s)
+        C.append(c)
+
+    #se agregan restricciones x >= 0 y y >= 0 para restringir al primer cuadrante
+    A.extend([1, 0])
+    B.extend([0, 1])
+    C.extend([0, 0])
+    Sim.extend([">=", ">="])
+
+    #se solicita fc objetivo
+    #---------------------------------------------------
+    #(max|min)       # Grupo 1: coincide con "max" o "min"
+    #z=              # Coincide literalmente con 'z='
+    #([-+]?\d*)      # Grupo 2: un número opcional con signo (coeficiente de x)
+    #x               # Coincide literalmente con 'x'
+    #([-+]?\d*)      # Grupo 3: otro número opcional con signo (coeficiente de y)
+    #y               # Coincide literalmente con 'y'
+    #---------------------------------------------------
+    funcion = input("ingresa la funcion objetivo (ejemplo: max z = 3x + 2y): ").replace(" ", "")
+    m = re.match(r'(max|min)z=([-+]?\d*)x([-+]?\d*)y', funcion)
+    if not m:
+        raise ValueError("formato incorrecto. Ejemplo valido: max z = 3x + 5y")
+
+    tipo = m.group(1)  #'max' o 'min'
+    #---------------------------------
+    #si esta vacio se asume que es 1, si no es solo un signo negativo, entonces es -1
+    #---------------------------------
+    cx = int(m.group(2) or '1') if m.group(2) != '-' else -1  #coeficiente de x
+    cy = int(m.group(3) or '1') if m.group(3) != '-' else -1  #coeficiente de y
+
+    return A, B, C, Sim, tipo, cx, cy
+
+# -------------------- CALCULO DE INTERSECCIONES --------------------
+def interseccion(a1, b1, c1, a2, b2, c2):
+    #se resuelve el sistema de ecuaciones lineales:
+    # a1*x + b1*y = c1
+    # a2*x + b2*y = c2
+    A = np.array([[a1, b1], [a2, b2]])
+    B = np.array([c1, c2])
+    
+    #si el determinante es 0, las rectas son paralelas o coincidentes
+    if np.linalg.det(A) == 0:
+        return None
+    # np.linalg.solve resuelve el sistema Ax = B
+    return np.linalg.solve(A, B)
+
+# -------------------- VALIDACION DE FACTIBILIDAD --------------------
+def es_factible(x, y, A, B, C, Sim):
+    #se recorre cada restriccion y se evalua si el punto (x, y) la cumple
+    for a, b, c, s in zip(A, B, C, Sim):
+        val = a*x + b*y
+        if s == '<=' and val > c + 1e-5:
             return False
-    return True
+        elif s == '>=' and val < c - 1e-5:
+            return False
+        elif s == '=' and abs(val - c) > 1e-5:
+            return False
+    return True  #si todas las restricciones se cumplen
 
-#------------------------------------------------------------------------------
-#------------------------------------------------------------------------------
-#------------------------------------------------------------------------------
+# -------------------- RESOLUCIÓN DEL PROBLEMA --------------------
+def Pro_lineal(A, B, C, Sim, tipo, cx, cy):
+    puntos = []
+    #se prueban todas las combinaciones de pares de restricciones
+    for i, j in combinations(range(len(A)), 2):
+        #se calcula la interseccion entre las rectas i y j
+        p = interseccion(A[i], B[i], C[i], A[j], B[j], C[j])
+        #si hay interseccion y es factible, se guarda
+        if p is not None and es_factible(p[0], p[1], A, B, C, Sim):
+            puntos.append(p)
 
-# A = Matriz de tamaño n x 2 que contiene los coeficientes de las variables
-#     en las restricciones del sistema.
-#     Por ejemplo, si una restricción es: a1*x + a2*y <= b1,
-#     entonces la fila correspondiente en A es [a1, a2].
+    if not puntos:
+        raise ValueError("la region factible esta vacía. No hay solucion")
 
-# B = Vector de tamaño n que contiene los términos independientes (lado derecho)
-#     de las restricciones del sistema.
-#     Por ejemplo, si una restricción es: a1*x + a2*y <= b1
-#     entonces B incluye b1.
-
-# C = vector de tamaño 2 que contiene los coeficientes que acompañan 
-#     a las variables de la función objetivo que se desea maximizar o minimizar.
-#     Por ejemplo, si la función es: z = c1*x1 + c2*x2, entonces:
-#     C = [c1, c2]
-
-def Pro_lineal(A, B, C, Sim, max_Min):
-    Puntos = []
     valores = []
-    for i in range(len(B)):
-        for j in range(i + 1, len(B)):
-            a = A[[i, j]]
-            b = B[[i, j]]
-            try:
-                pun = puntos(a, b)
-            except np.linalg.LinAlgError:
-                continue
-            if verificacion(A, B, Sim, pun):
-                z = C[0]*pun[0] + C[1]*pun[1]
-                Puntos.append(pun)
-                valores.append(z)
-    if max_Min == "max":
-        idx = np.argmax(valores)
-    elif max_Min == "min":
-        idx = np.argmin(valores)
-    return valores[idx], Puntos[idx], Puntos  # también devuelve todos los puntos válidos
+    for p in puntos:
+        #se evalua la funcion objetivo z = cx*x + cy*y en cada punto
+        valores.append(cx*p[0] + cy*p[1])
 
-#------------------------------------------------------------------------------
-#------------------------------------------------------------------------------
-#------------------------------------------------------------------------------
+    #se obtiene el indice del valor optimo (maximo o minimo)
+    idx = np.argmax(valores) if tipo == 'max' else np.argmin(valores)
 
-def graficar(A, B, Sim, C, max_Min):
-    x_vals = np.linspace(0, 100, 400)
+    return valores[idx], puntos[idx], puntos
 
-    plt.figure(figsize=(8, 8))
+# -------------------- GRÁFICO --------------------
+def graficar(A, B, C, puntos, mejor_punto, cx, cy):
+    #rango de valores para x que usaremos para dibujar lineas
+    x = np.linspace(0, max(p[0] for p in puntos)*1.2 + 10, 400)
+    colores = plt.cm.get_cmap('tab10')  # mapa de colores para diferenciar restricciones
 
-    for i in range(len(B)):
-        if A[i, 1] != 0:
-            y = (B[i] - A[i, 0] * x_vals) / A[i, 1]
-            plt.plot(x_vals, y, label=f'Restricción {i+1}')
+    for i, (a, b, c) in enumerate(zip(A, B, C)):
+        color = colores(i % 10)  #color distinto para cada linea
+        if b != 0:
+            #se despeja y = (c - a*x) / b
+            y = (c - a*x) / b
+            plt.plot(x, y, label=f'{a}x + {b}y {Sim[i]} {c}', color=color)
+            px, py = 2, (c - a*2) / b  #punto para poner la flecha
         else:
-            plt.axvline(x=B[i] / A[i, 0], linestyle='--', label=f'Restricción {i+1}')
+            #si b == 0, es una recta vertical x = c/a
+            plt.axvline(x=c/a, label=f'{a}x {Sim[i]} {c}', color=color)
+            px, py = c/a, 2  #posicion para flecha
 
-    #graficar funcion objetivo (solo referencia)
-    if C[1] != 0:
-        y_obj = (-C[0] * x_vals) / C[1]
-        plt.plot(x_vals, y_obj, label="Función objetivo", color='black', linestyle='--')
+        #se añade anotacion con flecha hacia la recta
+        plt.annotate(f"{a}x + {b}y {Sim[i]} {c}", xy=(px, py), xytext=(px + 3, py + 3),
+                     arrowprops=dict(arrowstyle="->", color=color), color=color, fontsize=9)
 
-    #obtener puntos factibles y optimo
-    opt_val, opt_punto, puntos_validos = Pro_lineal(A, B, C, Sim, max_Min)
+    puntos = np.array(puntos)
+    #se dibuja la region factible como poligono relleno
+    plt.fill(puntos[:,0], puntos[:,1], 'skyblue', alpha=0.4, label="Región factible")
+    #se dibujam los puntos vertice
+    plt.plot(puntos[:,0], puntos[:,1], 'ko')
 
-    # Graficar región factible (rellenada)
-    if len(puntos_validos) >= 3:
-        # ordenar los puntos alrededor del centro para graficar el polígono correctamente
-        centro = np.mean(puntos_validos, axis=0)
-        puntos_ordenados = sorted(puntos_validos, key=lambda p: np.arctan2(p[1] - centro[1], p[0] - centro[0]))
-        polygon = Polygon(puntos_ordenados, color='lightblue', alpha=0.5, label="Región factible")
-        plt.gca().add_patch(polygon)
+    #se etiqueta cada vertice con sus coordenadas y valor de z
+    for p in puntos:
+        z = cx*p[0] + cy*p[1]
+        plt.text(p[0]+0.3, p[1]+0.3, f"({p[0]:.1f},{p[1]:.1f})\nz={z:.1f}", fontsize=8)
 
-    #graficar puntos factibles
-    for p in puntos_validos:
-        plt.plot(p[0], p[1], 'bo')  # semi-optimos en azul
-        plt.text(p[0]+1, p[1]+1, f"({p[0]:.1f}, {p[1]:.1f})", fontsize=8)
+    #se dibuja el punto optimo en rojo
+    plt.plot(mejor_punto[0], mejor_punto[1], 'ro', label="Óptimo")
 
-    #graficar solucion optima
-    plt.plot(opt_punto[0], opt_punto[1], 'ro', label=f'Óptimo: {opt_punto} \nz={opt_val:.1f}', markersize=8)
+    #se dibuja la recta de nivel de la funcion objetivo
+    z = cx*mejor_punto[0] + cy*mejor_punto[1]
+    y_obj = (z - cx*x) / cy
+    plt.plot(x, y_obj, 'r--', label="Función objetivo")
 
-    #estetica general
-    plt.xlim(0, 100)
-    plt.ylim(0, 100)
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title(f"{max_Min.capitalize()}imización de Z = {C[0]}x + {C[1]}y")
-    plt.axhline(0, color='black', linewidth=1)
-    plt.axvline(0, color='black', linewidth=1)
+    #estetica del grafico
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Programación Lineal - Solución Gráfica')
     plt.grid(True)
+    plt.axis('equal')  #mantener proporción 1:1
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
-A = np.array([
-    [2, 1],
-    [1, 3],
-    [1, 0],
-    [0, 1]
-])
+# ------------------ EJECUCIÓN PRINCIPAL ------------------
+if __name__ == '__main__':
+    try:
+        #lee las entradas del usuario
+        A, B, C, Sim, tipo, cx, cy = parse_input()
 
-B = np.array([100, 80, 45, 100])
-Sim = ["<=", "<=", "<=", "<="]
-C = np.array([2, 3])
+        #calcula la solucion optima y los puntos de interseccion validos
+        valor_optimo, punto_optimo, vertices = Pro_lineal(A, B, C, Sim, tipo, cx, cy)
 
-# CAMBIO REALIZADO AQUÍ:
-opt_val, opt_punto, _ = Pro_lineal(A, B, C, Sim, "max")
+        #muestra el resultado
+        print("\n Solución óptima:")
+        print(f"   Punto: x = {punto_optimo[0]:.2f}, y = {punto_optimo[1]:.2f}")
+        print(f"   Valor óptimo de z: {valor_optimo:.2f}")
 
-print(f"valor optimo: {opt_val}")
-print(f"punto optimo: {opt_punto}")
+        #genera el grafico final
+        graficar(A, B, C, vertices, punto_optimo, cx, cy)
 
-graficar(A, B, Sim, C, "max")
-
-def graficar(A, B, Sim, C, max_Min):
-    x_vals = np.linspace(0, 100, 400)
-    y_vals = np.linspace(0, 100, 400)
-    
-    plt.figure(figsize=(8, 8))
-
-    for i in range(len(B)):
-        if A[i, 1] != 0:
-            y = (B[i] - A[i, 0] * x_vals) / A[i, 1]
-            plt.plot(x_vals, y, label=f'restriccion {i+1}')
-        else:
-            plt.axvline(x=B[i] / A[i, 0], linestyle='--', label=f'restriccion {i+1}')
-
-    if C[1] != 0:
-        y_obj = (-C[0] * x_vals) / C[1]
-        plt.plot(x_vals, y_obj, label="funcion objetivo", color='black', linestyle='--')
-
-    plt.xlim(0, 100)
-    plt.ylim(0, 100)
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.axhline(0, color='black',linewidth=1)
-    plt.axvline(0, color='black',linewidth=1)
-    
-    opt_val, opt_punto = Pro_lineal(A, B, C, Sim, max_Min)
-    plt.plot(opt_punto[0], opt_punto[1], 'ro', label=f'solucion optima {opt_punto}')
-    plt.title(f"optimizacion: {max_Min.capitalize()}imizacion de z")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
-A = np.array([
-    [2, 1],
-    [1, 3],
-    [1, 0],
-    [0, 1]
-])
-
-B = np.array([100, 80, 45, 100])
-Sim = ["<=", "<=", "<=", "<="]
-C = np.array([2, 3])
-
-opt_val, opt_punto = Pro_lineal(A, B, C, Sim, "max")
-print(f"valor optimo: {opt_val}")
-print(f"punto optimo: {opt_punto}")
-
-graficar(A, B, Sim, C, "max")
-
-#Valor óptimo: 124.0
-#Punto óptimo: [44. 12.]
+    except Exception as e:
+        print(f"\n Error: {e}")
